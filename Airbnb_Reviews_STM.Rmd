@@ -1,0 +1,596 @@
+# Technical Preparation
+## Libraries set-up
+```{r}
+library(dplyr)
+library(tm)
+library(stm)
+library(ggplot2)
+library(tidyr)
+library(purrr)
+#library(ggpubr)
+library(ggrepel)
+library(tidytext)
+library(tidyverse)
+library(ggcorrplot)
+```
+
+# Versions 
+```{r}
+sessionInfo()
+```
+# Data Download & Preparation for STM
+```{r}
+data <- read_csv("C:/Users/user/Downloads/full_data_cleaned (1).csv")
+data <- select(data, -1)
+data$room_type <- as.factor(data$room_type)
+data$year <- as.factor(data$year)
+data$date<-  as.Date(data$date, format ="%Y-%m-%d")
+dates_sorted <- data[order(data$date),] %>% select("date")
+dates_sorted_uniques<- dates_sorted %>% unique
+dates_integer <- seq(1, dim(dates_sorted_uniques)[1], by=1)
+dates_df<- data.frame(dates_sorted_uniques, dates_integer)
+data<- left_join(data, dates_df, by='date')
+data<- data[order(data$date),]
+data <- select(data, c("comments", "room_type", "dates_integer"))
+```
+
+```{r}
+processed <- textProcessor(data$comments, metadata = data, ucp = FALSE,
+  stem = FALSE, removestopwords = FALSE, wordLengths = c(2, Inf), verbose=TRUE)
+```
+
+# Fig.2 - Possible results of using different thresholds for the elimination of infrequent words
+```{r}
+plotRemoved(processed$documents, lower.thresh = seq(1, 20, by = 1))
+```
+
+```{r}
+out <- prepDocuments(processed$documents, processed$vocab, processed$meta, lower.thresh = 20)
+docs <- out$documents
+vocab <- out$vocab
+meta <-out$meta
+```
+
+
+# Number of Topics Optimization
+```{r}
+system.time({
+storage <- searchK(out$documents, out$vocab, K = c(5,10,15,20,25,30), N= 73000,
+prevalence =~ room_type + s(dates_integer) + s(dates_integer)*room_type, data = meta, verbose=FALSE, heldout.seed = 17,
+init.type= "Spectral",  max.em.its = 75
+)})
+```
+
+```{r}
+system.time({
+storage2 <- searchK(out$documents, out$vocab, K = c(35,40), N= 73000,
+prevalence =~ room_type + s(dates_integer) + s(dates_integer)*room_type, data = meta, verbose=FALSE, heldout.seed = 17,
+init.type= "Spectral",  max.em.its = 75
+)})
+```
+
+```{r}
+storage_30<- storage$results
+storage_40<- storage2$results
+storage_40<- rbind(storage_30,storage_40) %>% as.data.frame()
+
+```
+
+# Fig.4 Estimation of Residuals, Semantic Coherence, Exclusivity, and Variational lower bound for different numbers of topics
+```{r}
+library(palmerpenguins)
+  
+# combined plot with 2 rows and 1 column
+par(mfcol = c(2,2))
+  
+# first single plot
+plot(storage_40$K,
+     storage_40$residual,
+     main = "Residuals",
+     type = "b",
+     xlab = "Number of Topics (K)",
+     ylab = "Residuals",
+      col = "#0000AF")
+  
+# second single plot
+plot(storage_40$K,
+     storage_40$semcoh,
+     main = "Semantic Coherence",
+     type = "b",
+     col = "#0000AF",
+     xlab = "Number of Topics (K)",
+     ylab = "Semantic Coherence")
+
+plot(storage_40$K,
+     storage_40$exclus,
+     main = "Exclusivity",
+     type = "b",
+     col = "#0000AF",
+     xlab = "Number of Topics (K)",
+     ylab = "Exclusivity")
+
+plot(storage_40$K,
+     storage_40$lbound,
+     main = "Lower Bound",
+     type = "b",
+     col = "#0000AF",
+     xlab = "Number of Topics (K)",
+     ylab = "Lower Bound")
+```
+
+# STM and Topic Proportions
+```{r}
+STM_35 <- stm(docs, vocab, 35, 
+                 prevalence =~ room_type + s(dates_integer) + s(dates_integer)*room_type,
+                 data = meta,
+                 seed = 17, max.em.its = 75, init.type="Spectral", verbose=FALSE
+)
+```
+
+```{r}
+proportions_table <- make.dt(STM_35)  
+top_prop<- summarize_all(proportions_table, mean) %>%  t()
+```
+
+# Topic Labelling 
+```{r}
+labelTopics(STM_35, c(1:35)) 
+```
+
+# Mining Thoughts for Unlabelled Topics
+ 2, 5, 6, 9, 20, 24, 27, 29, 30, 33
+```{r}
+thoughts2 <- findThoughts(STM_35, texts = meta$comments,
+n = 3, topics = 2)$docs[[1]]
+thoughts5 <- findThoughts(STM_35, texts = meta$comments,
+n = 3, topics = 5)$docs[[1]]
+thoughts6 <- findThoughts(STM_35, texts = meta$comments,
+n = 3, topics = 6)$docs[[1]]
+thoughts9 <- findThoughts(STM_35, texts = meta$comments,
+n = 3, topics = 9)$docs[[1]]
+thoughts20 <- findThoughts(STM_35, texts = meta$comments,
+n = 2, topics = 20)$docs[[1]]
+thoughts24 <- findThoughts(STM_35, texts = meta$comments,
+n = 3, topics = 24)$docs[[1]]
+thoughts27 <- findThoughts(STM_35, texts = meta$comments,
+n = 3, topics = 27)$docs[[1]]
+thoughts29 <- findThoughts(STM_35, texts = meta$comments,
+n = 3, topics = 29)$docs[[1]]
+thoughts30 <- findThoughts(STM_35, texts = meta$comments,
+n = 3, topics = 30)$docs[[1]]
+thoughts33 <- findThoughts(STM_35, texts = meta$comments,
+n = 3, topics = 33)$docs[[1]]
+
+
+par(mfrow = c(1,2))
+plotQuote(thoughts2, width = 30,  main = "Topic 2")
+plotQuote(thoughts5, width = 30,  main = "Topic 5")
+
+par(mfrow = c(1,2))
+plotQuote(thoughts6, width = 30,  main = "Topic 6")
+plotQuote(thoughts9, width = 30,  main = "Topic 9")
+
+par(mfrow = c(1,2))
+plotQuote(thoughts20, width = 30,  main = "Topic 20")
+plotQuote(thoughts24, width = 30,  main = "Topic 24")
+
+par(mfrow = c(1,2))
+plotQuote(thoughts27, width = 30,  main = "Topic 27")
+plotQuote(thoughts29, width = 30,  main = "Topic 29")
+
+par(mfrow = c(1,2))
+plotQuote(thoughts30, width = 30,  main = "Topic 30")
+plotQuote(thoughts33, width = 30,  main = "Topic 33")
+```
+
+
+# Mining Thoughts and Key Phrases for each topic for deeper understanding
+```{r include=FALSE}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 2)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 6)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 10)$docs[[1]]
+
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 11)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 14)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 16)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 22)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 25)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 28)$docs[[1]]
+```
+
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 12)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 21)$docs[[1]]
+```
+
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 23)$docs[[1]]
+```
+
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 34)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 27)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 10, topics = 8)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 24)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 35)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 17)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 7)$docs[[1]]
+```
+
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics = 30)$docs[[1]]
+```
+
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =33)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =13)$docs[[1]]
+```
+
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =19)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =31)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =29)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =4)$docs[[1]]
+```
+
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =3)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =20)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =26)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =15)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 15, topics =32)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =18)$docs[[1]]
+```
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =1)$docs[[1]]
+```
+
+```{r}
+findThoughts(STM_35, texts = meta$comments,
+n = 5, topics =5)$docs[[1]]
+```
+
+# Topic Correlation Analysis
+```{r}
+corr_35 <- topicCorr(STM_35, verbose = FALSE)
+topic_correlation_matrix<- corr_35$cor
+dev.new(width=20, height=20, unit="in")
+plot(topicCorr(STM_35, cutoff = 0.2))
+#qgraph(corr_35$cor, graph = "cor", layout = "spring", minimum = 0.6)
+```
+```{r}
+
+```
+
+# Covariates Effect Estimation
+
+```{r}
+prep <- estimateEffect(1:35 ~ room_type + s(dates_integer) + s(dates_integer)*room_type, STM_35,
+meta = out$meta, uncertainty = "Global" )
+```
+
+# Year Effects for top 16 topics
+```{r}
+library(stminsights)
+effects <- get_effects(estimates = prep,
+                      variable = 'dates_integer',
+                      type = 'continuous')
+effects$value<- round(effects$value, 0)
+effects <- left_join(effects, dates_df, join_by(value == dates_integer))
+```
+
+
+# Accommodation Features
+
+Patio and Garden	-	Topic 12
+Noise	-	Topic 21
+View from Unit -Topic 23
+Accommodation Description - Topic 34
+`
+
+```{r}
+effects  %>%   filter(topic == c(12,21,23,34))  %>% 
+ mutate(topic = as.factor(topic)) %>% 
+ ggplot(aes(x = date, y = proportion, color = topic, group = topic, fill = topic)) + 
+  geom_line() + 
+  #scale_fill_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  #scale_color_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  geom_ribbon(aes(y =proportion , ymin = lower, ymax = upper), alpha = 0.4) +
+  #scale_fill_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  #scale_color_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) + 
+theme(axis.text.x = element_text(angle = 90,size = 16),axis.text.y = element_text(size = 16), panel.grid.minor = element_blank(), panel.background = element_blank(), panel.grid.major = element_line(size = 0.25, linetype = 'dashed', colour = "grey"), axis.title = element_text(size = 24),legend.text = element_text(size = 16),legend.title = element_text(size = 20))+
+ scale_x_date(date_breaks = "3 months")+ 
+labs(x = 'Date', y = 'Estimated Topic Proportion', color = 'Airbnb Features', group = 'Airbnb Features', fill = 'Airbnb Features') + scale_fill_discrete(labels=c('Patio and Garden', 'Noise', "View from Unit", "Accommodation Description"))
+
+ggsave("C:/Users/user/Documents/UOM/Dissertation/Coding/Saved_graphs/AIRBNB_Feature_new.png",
+  width = 40,
+  height = 20,
+  units =  "cm",
+  dpi = 320)
+```
+
+# Experience Features
+General experience	Experience description	Topic 22
+Overall word of mouth	Experience description	Topic 25
+General recommendation	Experience description	Topic 14
+Home Away from Home	Experience description	Topic 11
+
+
+```{r}
+effects  %>%   filter(topic == c(22,25,14,11))  %>% 
+ mutate(topic = as.factor(topic)) %>% 
+ ggplot(aes(x = date, y = proportion, color = topic, group = topic, fill = topic)) + 
+  geom_line() + 
+  #scale_fill_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  #scale_color_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  geom_ribbon(aes(y =proportion , ymin = lower, ymax = upper), alpha = 0.4) +
+  #scale_fill_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  #scale_color_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) + 
+theme(axis.text.x = element_text(angle = 90,size = 16),axis.text.y = element_text(size = 16), panel.grid.minor = element_blank(), panel.background = element_blank(), panel.grid.major = element_line(size = 0.25, linetype = 'dashed', colour = "grey"), axis.title = element_text(size = 24),legend.text = element_text(size = 16),legend.title = element_text(size = 20))+
+ scale_x_date(date_breaks = "3 months")+ 
+labs(x = 'Date', y = 'Estimated Topic Proportion', color = 'Experience description', group = 'Experience description', fill = 'Experience description') + scale_fill_discrete(labels=c('Home Away from Home', 'General recommendation', "General experience", "Overall word of mouth"))
+
+ggsave("C:/Users/user/Documents/UOM/Dissertation/Coding/Saved_graphs/Experience description_final.png",
+  width = 40,
+  height = 20,
+  units =  "cm",
+  dpi = 320)
+```
+
+## Host - Guest relationship Features
+Hosts' response	Host	Topic 3
+Host advice?	Host	Topic 20
+Check-in 	Host	Topic 26
+Complimentary things	Host	Topic 15
+
+```{r}
+effects  %>%   filter(topic == c(3,20,26,15))  %>% 
+ mutate(topic = as.factor(topic)) %>% 
+ ggplot(aes(x = date, y = proportion, color = topic, group = topic, fill = topic)) + 
+  geom_line() + 
+  #scale_fill_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  #scale_color_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  geom_ribbon(aes(y =proportion , ymin = lower, ymax = upper), alpha = 0.4) +
+  #scale_fill_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  #scale_color_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) + 
+theme(axis.text.x = element_text(angle = 90,size = 16),axis.text.y = element_text(size = 16), panel.grid.minor = element_blank(), panel.background = element_blank(), panel.grid.major = element_line(size = 0.25, linetype = 'dashed', colour = "grey"), axis.title = element_text(size = 24),legend.text = element_text(size = 16),legend.title = element_text(size = 20))+
+ scale_x_date(date_breaks = "3 months")+ 
+labs(x = 'Date', y = 'Estimated Topic Proportion', color = 'Host-Guest Relationship', group = 'Host-Guest Relationship', fill = 'Host-Guest Relationship') + scale_fill_discrete(labels=c('Complimentary things', 'Host advice', "Check-in", "Hosts' response"))
+
+ggsave("C:/Users/user/Documents/UOM/Dissertation/Coding/Saved_graphs/host_guest.png",
+  width = 40,
+  height = 20,
+  units =  "cm",
+  dpi = 320)
+```
+
+
+# Location Features
+Neighbourhood attractiveness	Location	Topic 30
+Tourist attractions and car parking	Location	Topic 33
+Shopping	Location	Topic 13
+Accessible Location	Location	Topic 19
+
+```{r}
+effects  %>%   filter(topic == c(30,33,13,19))  %>% 
+ mutate(topic = as.factor(topic)) %>% 
+ ggplot(aes(x = date, y = proportion, color = topic, group = topic, fill = topic)) + 
+  geom_line() + 
+  #scale_fill_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  #scale_color_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  geom_ribbon(aes(y =proportion , ymin = lower, ymax = upper), alpha = 0.4) +
+  #scale_fill_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) +
+  #scale_color_manual(values=c("#7F58AF", "#64C5EB", "#E84D8A", "#FEB326")) + 
+theme(axis.text.x = element_text(angle = 90,size = 16),axis.text.y = element_text(size = 16), panel.grid.minor = element_blank(), panel.background = element_blank(), panel.grid.major = element_line(size = 0.25, linetype = 'dashed', colour = "grey"), axis.title = element_text(size = 24),legend.text = element_text(size = 16),legend.title = element_text(size = 20))+
+ scale_x_date(date_breaks = "3 months")+ 
+labs(x = 'Date', y = 'Estimated Topic Proportion', color = 'Location', group = 'Location', fill = 'Location') + scale_fill_discrete(labels=c('Shopping', 'Accessible Location', "Neighbourhood attractiveness", "Tourist attractions and car parking"))
+
+ggsave("C:/Users/user/Documents/UOM/Dissertation/Coding/Saved_graphs/location.png",
+  width = 40,
+  height = 20,
+  units =  "cm",
+  dpi = 320)
+```
+
+# Room type differences 
+Patio and Garden	-	Topic 12
+Noise	-	Topic 21
+View from Unit -Topic 23
+Accommodation Description - Topic 34
+
+```{r}
+png(filename="C:/Users/user/Documents/UOM/Dissertation/Coding/Saved_graphs/Differences.png",
+    width=30, height=15, units="cm", res=320)
+par(mfcol = c(2,2))
+
+# Accomodation Features
+plot(prep, covariate = "room_type", topics = c(12, 21, 23,34),
+model = STM_35, method = "difference",
+cov.value1 = "Private room", cov.value2 = "Entire home/apt",
+xlab = "More Entire home/apt  ...  More Private room",
+main = "Effect of Room Type on Accomodation Features Topics Proportions",
+xlim = c(-.02, .02), labeltype = "custom",
+custom.labels = c('Patio and Garden', 'Noise','View from Unit', "Accommodation Description"))
+
+# Experience 
+plot(prep, covariate = "room_type", topics = c(22, 25, 14, 11),
+model = STM_35, method = "difference",
+cov.value1 = "Private room", cov.value2 = "Entire home/apt",
+xlab = "More Entire home/apt  ...  More Private room",
+main = "Effect of Room Type on Experience Description Topics Proportions",
+xlim = c(-.02, .02), labeltype = "custom",
+custom.labels = c('General experience', 'Overall word of mouth','General recommendation', "Home Away from Home"))
+
+plot(prep, covariate = "room_type", topics = c(3, 20, 26, 15),
+model = STM_35, method = "difference",
+cov.value1 = "Private room", cov.value2 = "Entire home/apt",
+xlab = "More Entire home/apt  ...  More Private room",
+main = "Effect of Room Type on Host-Guest Relationship Topics Proportions",
+xlim = c(-.02, .02), labeltype = "custom",
+custom.labels = c('Hosts response', 'Host advice','Check-in', "Complimentary things"))
+
+plot(prep, covariate = "room_type", topics = c(30, 33, 13, 19),
+model = STM_35, method = "difference",
+cov.value1 = "Private room", cov.value2 = "Entire home/apt",
+xlab = "More Entire home/apt  ...  More Private room",
+main = "Effect of Room Type on Location Topics Proportions",
+xlim = c(-.02, .02), labeltype = "custom",
+custom.labels = c('Neighbourhood attractiveness', 'Tourist attractions and car parking','Shopping', "Accessible Location"))
+dev.off()
+```
+
+
+
+# Topic Correlation Analysis
+```{r}
+library(sna)
+library(igraph)
+library(visNetwork)
+tc<- topicCorr(STM_35)
+topic_corr_analysis <- topicCorr(STM_35, cutoff=0.05)
+topic_corr_analysis <-  topic_corr_analysis$cor
+relations <- as.matrix(topic_corr_analysis)
+
+rel_search <- function(x) {ifelse(x>0,x,0)}
+
+res_save<-apply(relations, 2, rel_search) 
+
+#res_save <- relations
+
+nodeInfo <- read.csv("C:/Users/user/Documents/UOM/Dissertation/Coding/Node_description_csv.csv",header=TRUE,stringsAsFactors=FALSE, sep=";")
+colnames(nodeInfo) = c("Topic_N" ,"Topic.Name","Class","Proportion" )
+nodeInfo <- nodeInfo[order(nodeInfo$Topic_N),]
+network <- graph_from_adjacency_matrix(res_save, mode='undirected', diag = FALSE, weighted = TRUE)
+
+w<- E(network)$weight*75
+LO =  layout_nicely(network)
+
+
+png(filename="C:/Users/user/Documents/UOM/Dissertation/Coding/Saved_graphs/corr_plot2.png",
+    width=150, height=150, units="cm", res=320)
+plot(network, 
+     #layout= LO, 
+     vertex.label=nodeInfo$Topic.Name ,
+      vertex.label.font=2,  
+     vertex.label.family="Times",
+     vertex.color = as.factor(nodeInfo$Class ),
+     vertex.size= nodeInfo$Proportion*350,
+     vertex.label.cex=5,
+     edge.width=w,
+     edge.color="grey"
+     )
+
+
+```
+
+# Word Frequencies for each Topic
+
+```{r}
+plot_freq_words = function(beta){
+    beta %>% 
+    with_groups(Label, top_n, beta, n = 5) %>% 
+    filter(beta >= .02) %>% 
+    mutate(topic = as.factor(Label)) %>% 
+    ggplot(aes(x = reorder(term, beta), y = beta, fill = Label)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(y = "Probability", x = NULL) +
+    guides(fill = "none") +
+    scale_fill_viridis_d() +
+    scale_y_continuous(breaks = seq(0, 1, .1)) +
+    facet_wrap(~topic, scales = "free")+
+    theme(text=element_text(face="bold", size=20), axis.text.y =element_text(face="bold", size=16) )
+}
+library(readxl)
+topic_names <- read_excel("C:/Users/user/Documents/UOM/Dissertation/Coding/topic_labels.xlsx")
+beta_35 <-tidy(STM_35, matrix = "beta")
+beta_35 <-left_join(beta_35, topic_names, by='topic')
+plot_freq_words(beta_35)
+
+ggsave("C:/Users/user/Documents/UOM/Dissertation/Coding/Saved_graphs/word_frequency.png",
+  width = 100,
+  height = 100,
+  units =  "cm",
+  dpi = 320)
+```
