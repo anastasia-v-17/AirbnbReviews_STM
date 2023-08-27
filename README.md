@@ -3,4 +3,4 @@ These are the files associated with the Airbnb Reviews Structural Topic Modellin
 
 <b>Airbnb_Reviews_Preprocessing.ipynb</b> - Python Code for Data Cleaning and Preprocessing, should be associated with dissertation Chapter 3
 
-<r> </b>Airbnb_Reviews_STM</b> - code in R language for STM set-up, and further analysis of obtained topics. Should be associated with dissertation Chapter 3 and Chapter 4</r>
+<r> <b>Airbnb_Reviews_STM</b> - code in R language for STM set-up, and further analysis of obtained topics. Should be associated with dissertation Chapter 3 and Chapter 4</r>
